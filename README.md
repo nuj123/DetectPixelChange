@@ -1,6 +1,6 @@
 # DetectPixelChange (AutoHotkey v2)
 
-A pixel monitoring and screen masking tool written in AutoHotkey v2. This script continuously tracks the color of a screen pixel and logs every change with a timestamp. It also visually highlights the pixel using a movable 10×10 bounding box with a visible border.
+A pixel monitoring and screen masking tool written in AutoHotkey v2. This script continuously tracks the color of a screen pixel and logs every change with a timestamp. It also visually highlights the pixel using a movable and color-changing 10×10 bounding box with a visible border. It uses the native `PixelGetColor()` function from AHK v2.
 
 ---
 
