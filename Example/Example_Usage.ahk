@@ -21,6 +21,7 @@ F3::px.boxCoord()
 ; Press F12 to exit 
 *F12::ExitApp
 
+; the Class here
 class DetectPixelChange {
     ; Half-width of the 20x20 visual mask (center pixel exposed)
     radius := 10
