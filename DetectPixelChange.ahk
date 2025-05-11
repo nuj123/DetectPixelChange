@@ -40,8 +40,8 @@ class DetectPixelChange {
         this.maskGuis := []
 
         for name in ["TL", "BL", "TR", "BR"] {
-            ; g := this.GuiCreate("+AlwaysOnTop -Caption +ToolWindow +E0x20 +border")
-            g := this.GuiCreate("-Caption +ToolWindow +E0x20 +border")
+            g := this.GuiCreate("+AlwaysOnTop -Caption +ToolWindow +E0x20 +border")
+            ; g := this.GuiCreate("-Caption +ToolWindow +E0x20 +border")
             g.BackColor := "Black"
             this.%name% := g
             this.maskGuis.Push(g)
