@@ -40,7 +40,7 @@ class DetectPixelChange {
     dy := 0
 
     ; Constructor: sets coordinates and drag timer
-    __New(x := 0, y:= 0) {
+    __New(x := A_ScreenWidth // 2, y:= A_ScreenHeight // 2) {
         CoordMode("Pixel", "Screen")
         CoordMode("Mouse", "Screen")
 
@@ -61,7 +61,7 @@ class DetectPixelChange {
         }
 
         this.maskGuis := []
-
+        this.maskGuisHwnd := []
         ; name choice:
             ; TL = Top Left
             ; TR = Top Right
@@ -75,12 +75,17 @@ class DetectPixelChange {
             g.BackColor := "Black"
             this.%name% := g
             this.maskGuis.Push(g)
+            this.maskGuisHwnd.Push(g.hwnd)
         }
         this.MoveBox()
     }
 
     ; Moves the 4 mask windows to surround the target pixel with a 10x10 box
     MoveBox() {
+        ; for index, hwnd in this.maskGuisHwnd {
+        ;     if !WinExist("ahk_id" hwnd)
+        ;         return
+        ; }
 
         this.border := border := 1
         radius := this.radius
@@ -110,12 +115,23 @@ class DetectPixelChange {
     
     ; Mouse down: Start drag mode, store offset
     WM_LBUTTONDOWN(wParam, lParam, msg, hwnd) {
-            MouseGetPos(&mx, &my)
-            this.dragging := true
-
-            this.dx := mx - this.x
-            this.dy := my - this.y
-            SetTimer(this.DoDragTimer, 10)
+        ; Only process if the click was on one of our mask windows
+        isMaskWindow := false
+        for index, maskHwnd in this.maskGuisHwnd {
+            if (hwnd = maskHwnd) {
+                isMaskWindow := true
+                break
+            }
+        }
+        
+        if (!isMaskWindow)
+            return
+            
+        MouseGetPos(&mx, &my)
+        this.dragging := true
+        this.dx := mx - this.x
+        this.dy := my - this.y
+        SetTimer(this.DoDragTimer, 10)
     }
 
     ; While dragging: update position based on mouse movement
@@ -140,6 +156,7 @@ class DetectPixelChange {
         for box in this.maskGuis
             box.Destroy()
         this.maskGuis := []
+        this.maskGuisHwnd := []
     }
 
     ; Set the pixel coordinates to watch for
@@ -151,7 +168,7 @@ class DetectPixelChange {
 
     ; Start monitoring the pixel color changes
     ; timer: time in ms between checks
-    start(timer := 15) {
+    start(timer := 30) {
         this.isStarted := 1
         this.BoxCoord()
         this.pxColorOld := ""
@@ -189,7 +206,6 @@ class DetectPixelChange {
 
         if (this.pxColorNew = this.pxColorOld)
             return
-
         this.pxColorOld := this.pxColorNew
         currentTime := A_Hour ":" A_MIN ":" A_SEC "." A_MSec
         this.pixelMap.Push(Map("time", currentTime, "color", this.pxColorNew))
@@ -216,22 +232,29 @@ class DetectPixelChange {
         this.lv := this.pixGui.Add("ListView", "w400 r10 +LV0x0001", ["", "Time", "Color"])
 
         ; Create and assign image list to the ListView
-        this.hIL := DllCall("Comctl32.dll\ImageList_Create", "Int", 16, "Int", 16, "UInt", 0x00, "Int", 10, "Int", 10, "Ptr")
+        ; this.hIL := DllCall("Comctl32.dll\ImageList_Create", "Int", 16, "Int", 16, "UInt", 0x00, "Int", 10, "Int", 10, "Ptr")
+        this.hIl := IL_Create(this.pixelMap.Length)
 
         LVSIL_SMALL := 1
-        DllCall("SendMessage", "Ptr", this.lv.Hwnd, "UInt", 0x1003, "Ptr", LVSIL_SMALL, "Ptr", this.hIL)  ; LVM_SETIMAGELIST
+        this.LV.SetImageList(this.hIL)
+        ; DllCall("SendMessage", "Ptr", this.lv.Hwnd, "UInt", 0x1003, "Ptr", LVSIL_SMALL, "Ptr", this.hIL)  ; LVM_SETIMAGELIST
 
 
         ; Populate the list
-        for item in this.pixelMap {
-            color := Integer(item["color"])
+        for index, item in this.pixelMap {
+            RGB := item["color"]
 
-            ; Create bitmap and add to image list
-            hbm := this.CreateSolidColorBitmap(16, 16, color)
-            iconIndex := DllCall("Comctl32.dll\ImageList_Add", "Ptr", this.hIL, "Ptr", hbm, "Ptr", 0, "Int") + 1
+            if (Type(RGB) = "String")
+                RGB := Integer(RGB)
+
+            ; Convert RGB → BGR for GDI
+            BGR := ((RGB & 0xFF) << 16) | (RGB & 0xFF00) | ((RGB >> 16) & 0xFF)
+
+            hbm := this.CreateSolidColorBitmap(16, 16, BGR)
+            iconIndex := IL_Add(this.hIl, "HBITMAP:" hbm)
             DllCall("DeleteObject", "Ptr", hbm)
 
-            this.lv.Add("Icon" iconIndex, "", item["time"], Format("0x{:06X}", color))
+            this.lv.Add("Icon" iconIndex, "", item["time"], Format("0x{:06X}",item["color"]))
         }
 
         ; Auto-adjust columns
@@ -246,27 +269,18 @@ class DetectPixelChange {
     ; Creates a solid bitmap with the given color (used for swatches)
     ; TY ChatGPT. I have no clue how this works, but you made it work.
     ; I just wanted a solid color bitmap to use as an icon in the ListView.
-    CreateSolidColorBitmap(w, h, color) {
-        hdc := DllCall("GetDC", "ptr", 0, "ptr")
-        memDC := DllCall("CreateCompatibleDC", "ptr", hdc, "ptr")
-        hbm := DllCall("CreateCompatibleBitmap", "ptr", hdc, "int", w, "int", h, "ptr")
-        DllCall("ReleaseDC", "ptr", 0, "ptr", hdc)
+    CreateSolidColorBitmap(width := 16, height := 16, color := 0x000000) {
+        hdc := DllCall("CreateCompatibleDC", "Ptr", 0, "Ptr")
+        hbm := DllCall("CreateBitmap", "Int", width, "Int", height, "UInt", 1, "UInt", 32, "Ptr", 0, "Ptr")
+        obm := DllCall("SelectObject", "Ptr", hdc, "Ptr", hbm, "Ptr")
 
-        oldObj := DllCall("SelectObject", "ptr", memDC, "ptr", hbm, "ptr")
-        brush := DllCall("CreateSolidBrush", "uint", color, "ptr")
+        hBrush := DllCall("CreateSolidBrush", "UInt", color, "Ptr")
+        DllCall("SelectObject", "Ptr", hdc, "Ptr", hBrush)
+        DllCall("PatBlt", "Ptr", hdc, "Int", 0, "Int", 0, "Int", width, "Int", height, "UInt", 0x42)  ; PATCOPY
 
-        ; RECT structure for FillRect
-        rc := Buffer(16, 0)
-        NumPut("int", 0, rc, 0)           ; left
-        NumPut("int", 0, rc, 4)           ; top
-        NumPut("int", w, rc, 8)           ; right
-        NumPut("int", h, rc, 12)          ; bottom
-
-        DllCall("FillRect", "ptr", memDC, "ptr", rc, "ptr", brush)
-
-        DllCall("DeleteObject", "ptr", brush)
-        DllCall("SelectObject", "ptr", memDC, "ptr", oldObj)
-        DllCall("DeleteDC", "ptr", memDC)
+        DllCall("SelectObject", "Ptr", hdc, "Ptr", obm)
+        DllCall("DeleteObject", "Ptr", hBrush)
+        DllCall("DeleteDC", "Ptr", hdc)
 
         return hbm
     }
